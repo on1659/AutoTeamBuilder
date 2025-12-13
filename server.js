@@ -5,14 +5,14 @@ const server = http.createServer(app);
 const { Server } = require('socket.io');
 const io = new Server(server, {
     cors: {
-        origin: "http://localhost:3000",
+        origin: process.env.CORS_ORIGIN || "*",
         methods: ["GET", "POST"]
     }
 });
 const path = require('path');
 require('dotenv').config();
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 // 정적 파일 제공
 app.use(express.static(path.join(__dirname, 'public')));
@@ -627,6 +627,6 @@ setInterval(() => {
     }
 }, 5 * 60 * 1000); // 5분마다 체크
 
-server.listen(PORT, 'localhost', () => {
-    console.log(`서버 실행 중: http://localhost:${PORT}`);
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`서버 실행 중: http://0.0.0.0:${PORT}`);
 });
