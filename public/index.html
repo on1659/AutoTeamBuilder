@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>팀 랜덤 배정</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-left">
+                <h1>🎲 팀 랜덤 배정</h1>
+            </div>
+            <div class="header-right">
+                <div class="stats">
+                    <div>오늘의 방 생성: <span id="room-count">0</span>개</div>
+                    <div>활성 방: <span id="active-room-count">0</span>개</div>
+                </div>
+            </div>
+        </div>
+        
+        <div id="landing-section" class="section">
+            <!-- 닉네임 입력 섹션 -->
+            <div class="room-section">
+                <h2>닉네임 입력</h2>
+                <div class="nickname-form">
+                    <div class="form-group">
+                        <label for="nickname-input">닉네임</label>
+                        <input type="text" id="nickname-input" placeholder="닉네임을 입력하세요" maxlength="20">
+                    </div>
+                    <p class="nickname-guide">💡 닉네임을 입력한 후 방을 생성하거나 입장할 수 있습니다.</p>
+                </div>
+            </div>
+
+            <!-- 방 만들기 섹션 -->
+            <div class="room-section">
+                <h2>방 만들기</h2>
+                <div class="create-room-form">
+                    <div class="form-group">
+                        <label for="room-name-input">방 이름</label>
+                        <input type="text" id="room-name-input" placeholder="방 이름을 입력하세요" maxlength="30">
+                    </div>
+                    <button id="create-room-btn" class="btn btn-primary btn-large">방 생성하기</button>
+                </div>
+            </div>
+
+            <!-- 방 목록 섹션 -->
+            <div class="room-section">
+                <div class="room-list-header">
+                    <h2>방 목록</h2>
+                    <button id="refresh-rooms-btn" class="btn btn-secondary">새로고침</button>
+                </div>
+                <div id="room-list" class="room-list">
+                    <p class="empty-message">생성된 방이 없습니다</p>
+                </div>
+            </div>
+        </div>
+
+        <div id="session-section" class="section" style="display: none;">
+            <div class="session-info">
+                <h3>호스트: <span id="current-host-name"></span></h3>
+                <p class="role-badge" id="role-badge"></p>
+                <div class="participants-section">
+                    <h4>참가자 목록 (<span id="participants-count">0</span>명)</h4>
+                    <div id="participants-list" class="participants-list"></div>
+                </div>
+            </div>
+
+            <!-- 호스트 컨트롤 영역 -->
+            <div id="host-controls" style="display: none;">
+                <div class="control-panel">
+                    <h3>1️⃣ 플레이어 설정 <span id="player-count-badge">(총 0명)</span></h3>
+                    <div id="players-list"></div>
+                    <div class="player-input">
+                        <input type="text" id="player-name-input" placeholder="플레이어 이름 (예: 이더,마라,뽕둠)">
+                        <button id="add-player-btn" class="btn btn-primary">플레이어 추가</button>
+                    </div>
+                    <p class="player-input-guide">💡 쉼표(,)로 구분하여 여러 명을 한 번에 추가할 수 있습니다 (예: 이더,마라,뽕둠)</p>
+                </div>
+
+                <div class="control-panel">
+                    <h3>2️⃣ 팀 구성 설정 <span id="team-assignment-badge">(0/0)</span></h3>
+                    <div id="team-config-list"></div>
+                    <div class="team-config-input">
+                        <input type="text" id="team-name-input" placeholder="팀 이름">
+                        <input type="number" id="team-size-input" placeholder="인원" min="1">
+                        <button id="add-team-btn" class="btn btn-primary">팀 추가</button>
+                    </div>
+                </div>
+
+                <div class="control-panel">
+                    <h3>3️⃣ 같은 팀 금지 설정</h3>
+                    <div id="restrictions-list"></div>
+                    <div class="restriction-input">
+                        <div style="width: 100%; margin-bottom: 10px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 600;">같은 팀에 들어가면 안 되는 플레이어 선택 (2명 이상):</label>
+                            <div id="restriction-players-checkboxes" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; padding: 10px; background: white; border: 2px solid #ddd; border-radius: 8px; max-height: 200px; overflow-y: auto;"></div>
+                        </div>
+                        <button id="add-restriction-btn" class="btn btn-primary">제약 추가</button>
+                    </div>
+                </div>
+
+                <div class="control-panel">
+                    <button id="assign-teams-btn" class="btn btn-success btn-large">🎲 팀 배정하기</button>
+                    <button id="reset-btn" class="btn btn-secondary" style="display: none;">초기화</button>
+                </div>
+            </div>
+
+            <!-- 뷰어 영역 -->
+            <div id="viewer-area">
+                <div class="control-panel">
+                    <h3>📋 현재 설정</h3>
+                    <div id="viewer-info">
+                        <div class="info-section">
+                            <h4>플레이어 ({<span id="viewer-player-count">0</span>}명)</h4>
+                            <div id="viewer-players" class="info-content"></div>
+                        </div>
+                        <div class="info-section">
+                            <h4>팀 구성</h4>
+                            <div id="viewer-teams" class="info-content"></div>
+                        </div>
+                        <div class="info-section">
+                            <h4>같은 팀 금지</h4>
+                            <div id="viewer-restrictions" class="info-content"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 결과 영역 -->
+            <div id="result-section" class="section" style="display: none;">
+                <h3>🎉 배정 결과</h3>
+                <div id="result-message"></div>
+                <div id="result-teams"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/app.js"></script>
+</body>
+</html>
