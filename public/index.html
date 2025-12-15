@@ -59,8 +59,13 @@
 
         <div id="session-section" class="section" style="display: none;">
             <div class="session-info">
-                <h3>호스트: <span id="current-host-name"></span></h3>
-                <p class="role-badge" id="role-badge"></p>
+                <div class="session-header">
+                    <div>
+                        <h3>호스트: <span id="current-host-name"></span></h3>
+                        <p class="role-badge" id="role-badge"></p>
+                    </div>
+                    <button id="delete-room-btn" class="btn btn-danger" style="display: none;">방 삭제</button>
+                </div>
                 <div class="participants-section">
                     <h4>참가자 목록 (<span id="participants-count">0</span>명)</h4>
                     <div id="participants-list" class="participants-list"></div>
@@ -87,6 +92,13 @@
                         <input type="number" id="team-size-input" placeholder="인원" min="1">
                         <button id="add-team-btn" class="btn btn-primary">팀 추가</button>
                     </div>
+                    <div class="restriction-input" style="margin-top: 15px;">
+                        <div style="width: 100%; margin-bottom: 10px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 600;">해당 팀에 꼭 들어가야 하는 사람:</label>
+                            <div id="required-players-checkboxes" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; padding: 10px; background: white; border: 2px solid #ddd; border-radius: 8px; max-height: 200px; overflow-y: auto;"></div>
+                        </div>
+                        <button id="add-required-players-btn" class="btn btn-primary">필수 플레이어 추가</button>
+                    </div>
                 </div>
 
                 <div class="control-panel">
@@ -103,6 +115,7 @@
 
                 <div class="control-panel">
                     <button id="assign-teams-btn" class="btn btn-success btn-large">🎲 팀 배정하기</button>
+                    <div id="team-assignment-count" style="text-align: center; margin-top: 10px; color: #666; font-size: 14px;"></div>
                     <button id="reset-btn" class="btn btn-secondary" style="display: none;">초기화</button>
                 </div>
             </div>

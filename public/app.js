@@ -90,6 +90,7 @@ const viewerArea = document.getElementById('viewer-area');
 const resultSection = document.getElementById('result-section');
 const participantsList = document.getElementById('participants-list');
 const participantsCount = document.getElementById('participants-count');
+const deleteRoomBtn = document.getElementById('delete-room-btn');
 
 // 호스트 컨트롤 요소
 const playersList = document.getElementById('players-list');
@@ -100,11 +101,17 @@ const teamConfigList = document.getElementById('team-config-list');
 const teamAssignmentBadge = document.getElementById('team-assignment-badge');
 const teamNameInput = document.getElementById('team-name-input');
 const teamSizeInput = document.getElementById('team-size-input');
+const requiredPlayersCheckboxes = document.getElementById('required-players-checkboxes');
+const addRequiredPlayersBtn = document.getElementById('add-required-players-btn');
 const addTeamBtn = document.getElementById('add-team-btn');
+
+// 현재 필수 플레이어를 추가할 팀 인덱스
+let currentTeamIndexForRequiredPlayers = null;
 const restrictionsLis = document.getElementById('restrictions-list');
 const restrictionPlayersCheckboxes = document.getElementById('restriction-players-checkboxes');
 const addRestrictionBtn = document.getElementById('add-restriction-btn');
 const assignTeamsBtn = document.getElementById('assign-teams-btn');
+const teamAssignmentCount = document.getElementById('team-assignment-count');
 const resetBtn = document.getElementById('reset-btn');
 
 // 뷰어 요소
@@ -289,12 +296,73 @@ addTeamBtn.addEventListener('click', () => {
         return;
     }
 
-    const newConfig = [...sessionData.teamConfig, { name, size }];
+    const newConfig = [...sessionData.teamConfig, { 
+        name, 
+        size, 
+        requiredPlayers: [] 
+    }];
     socket.emit('update_team_config', { sessionId: currentSessionId, teamConfig: newConfig });
     
     teamNameInput.value = '';
     teamSizeInput.value = '';
 });
+
+// 필수 플레이어 추가 버튼
+if (addRequiredPlayersBtn) {
+    addRequiredPlayersBtn.addEventListener('click', () => {
+        if (currentTeamIndexForRequiredPlayers === null) {
+            alert('먼저 팀을 선택하세요. 팀 항목의 "필수 플레이어 설정" 버튼을 클릭하세요.');
+            return;
+        }
+        
+        const selectedPlayers = [];
+        if (requiredPlayersCheckboxes) {
+            const checkboxes = requiredPlayersCheckboxes.querySelectorAll('input[type="checkbox"]:checked:not(:disabled)');
+            checkboxes.forEach(checkbox => {
+                selectedPlayers.push(checkbox.value);
+            });
+        }
+        
+        if (selectedPlayers.length === 0) {
+            alert('필수 플레이어를 선택하세요.');
+            return;
+        }
+        
+        const team = sessionData.teamConfig[currentTeamIndexForRequiredPlayers];
+        if (!team) {
+            alert('팀을 찾을 수 없습니다.');
+            currentTeamIndexForRequiredPlayers = null;
+            return;
+        }
+        
+        // 필수 플레이어 수가 팀 인원보다 많으면 안 됨
+        const currentRequired = team.requiredPlayers || [];
+        const newRequired = [...new Set([...currentRequired, ...selectedPlayers])];
+        if (newRequired.length > team.size) {
+            alert(`필수 플레이어 수가 팀 인원(${team.size}명)보다 많을 수 없습니다.`);
+            return;
+        }
+        
+        // 팀 구성 업데이트
+        const newConfig = [...sessionData.teamConfig];
+        newConfig[currentTeamIndexForRequiredPlayers] = {
+            ...team,
+            requiredPlayers: newRequired
+        };
+        
+        socket.emit('update_team_config', { sessionId: currentSessionId, teamConfig: newConfig });
+        
+        // 체크박스 초기화
+        if (requiredPlayersCheckboxes) {
+            const checkboxes = requiredPlayersCheckboxes.querySelectorAll('input[type="checkbox"]');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = false;
+            });
+        }
+        
+        currentTeamIndexForRequiredPlayers = null;
+    });
+}
 
 addRestrictionBtn.addEventListener('click', () => {
     // 선택된 플레이어들 가져오기
@@ -438,6 +506,25 @@ socket.on('session_joined', (data) => {
     }
 });
 
+socket.on('room_deleted', (data) => {
+    alert('방이 삭제되었습니다.');
+    // landing section으로 돌아가기
+    currentSessionId = null;
+    isHost = false;
+    currentUsers = [];
+    sessionData = {
+        players: [],
+        teamConfig: [],
+        restrictions: [],
+        restrictionGroups: [],
+        result: null
+    };
+    landingSection.style.display = 'block';
+    sessionSection.style.display = 'none';
+    resultSection.style.display = 'none';
+    socket.emit('get_room_list');
+});
+
 socket.on('players_updated', (data) => {
     sessionData.players = data.players;
     updateUI();
@@ -445,7 +532,25 @@ socket.on('players_updated', (data) => {
 
 socket.on('team_config_updated', (data) => {
     sessionData.teamConfig = data.teamConfig;
+    
+    // 현재 선택된 팀이 삭제되었거나 인덱스가 범위를 벗어났으면 리셋
+    if (currentTeamIndexForRequiredPlayers !== null) {
+        if (currentTeamIndexForRequiredPlayers >= sessionData.teamConfig.length) {
+            currentTeamIndexForRequiredPlayers = null;
+            if (addRequiredPlayersBtn) {
+                addRequiredPlayersBtn.textContent = '필수 플레이어 추가';
+            }
+        } else {
+            // 팀이 삭제되어 인덱스가 변경되었을 수 있으므로 버튼 텍스트 업데이트
+            const team = sessionData.teamConfig[currentTeamIndexForRequiredPlayers];
+            if (team && addRequiredPlayersBtn) {
+                addRequiredPlayersBtn.textContent = `${team.name}에 필수 플레이어 추가`;
+            }
+        }
+    }
+    
     updateUI();
+    updateRequiredPlayersCheckboxes(); // 필수 플레이어 체크박스 업데이트
 });
 
 socket.on('restrictions_updated', (data) => {
@@ -611,9 +716,17 @@ function showSession(hostName) {
     if (isHost) {
         roleBadge.textContent = '호스트';
         roleBadge.className = 'role-badge host';
+        // 호스트일 때만 방 삭제 버튼 표시
+        if (deleteRoomBtn) {
+            deleteRoomBtn.style.display = 'block';
+        }
     } else {
         roleBadge.textContent = '관전자';
         roleBadge.className = 'role-badge viewer';
+        // 관전자일 때는 방 삭제 버튼 숨김
+        if (deleteRoomBtn) {
+            deleteRoomBtn.style.display = 'none';
+        }
     }
     
     updateParticipants();
@@ -748,6 +861,183 @@ function validateTeamAssignment(players, teamConfig, restrictions) {
     return { possible: true, reason: '' };
 }
 
+// 팩토리얼 계산 함수
+function factorial(n) {
+    if (n <= 1) return 1;
+    let result = 1;
+    for (let i = 2; i <= n; i++) {
+        result *= i;
+    }
+    return result;
+}
+
+// 팀 배정 경우의 수 계산 (같은팀 금지설정 포함)
+function calculateTeamAssignmentCombinations() {
+    const players = sessionData.players;
+    const teamConfig = sessionData.teamConfig;
+    const restrictions = sessionData.restrictions || [];
+    
+    if (players.length === 0 || teamConfig.length === 0) {
+        return 0;
+    }
+    
+    // 총 슬롯 수 확인
+    const totalSlots = teamConfig.reduce((sum, team) => sum + team.size, 0);
+    if (players.length !== totalSlots) {
+        return 0;
+    }
+    
+    // 필수 플레이어 수집
+    const requiredPlayersCount = teamConfig.reduce((sum, team) => {
+        return sum + (team.requiredPlayers ? team.requiredPlayers.length : 0);
+    }, 0);
+    
+    // 나머지 플레이어 수
+    const remainingPlayers = players.length - requiredPlayersCount;
+    
+    // 각 팀에 배정할 나머지 플레이어 수 계산
+    const remainingSlots = teamConfig.map(team => {
+        const requiredCount = team.requiredPlayers ? team.requiredPlayers.length : 0;
+        return team.size - requiredCount;
+    });
+    
+    // 나머지 슬롯의 합 확인
+    const totalRemainingSlots = remainingSlots.reduce((sum, slots) => sum + slots, 0);
+    if (remainingPlayers !== totalRemainingSlots) {
+        return 0;
+    }
+    
+    // 같은팀 금지설정이 없으면 기본 계산
+    if (restrictions.length === 0) {
+        // 경우의 수 계산: remainingPlayers! / (remainingSlots[0]! * remainingSlots[1]! * ...)
+        let denominator = 1;
+        remainingSlots.forEach(slots => {
+            denominator *= factorial(slots);
+        });
+        
+        const combinations = factorial(remainingPlayers) / denominator;
+        return Math.floor(combinations); // 소수점 제거
+    }
+    
+    // 같은팀 금지설정이 있으면 실제로 가능한 조합을 세어야 함
+    // 이는 계산량이 많을 수 있으므로 근사치를 계산하거나 실제 조합을 생성하여 세어야 함
+    // 여기서는 실제 가능한 조합을 생성하여 세는 방식 사용
+    return countValidCombinations(players, teamConfig, restrictions);
+}
+
+// 제약 조건을 만족하는 실제 조합 수 계산
+function countValidCombinations(players, teamConfig, restrictions) {
+    // 필수 플레이어를 각 팀에 고정
+    const fixedAssignments = new Map(); // 플레이어 -> 팀 인덱스
+    const remainingPlayersList = [];
+    
+    teamConfig.forEach((team, teamIndex) => {
+        if (team.requiredPlayers) {
+            team.requiredPlayers.forEach(player => {
+                fixedAssignments.set(player, teamIndex);
+            });
+        }
+    });
+    
+    // 나머지 플레이어 목록 생성
+    players.forEach(player => {
+        if (!fixedAssignments.has(player)) {
+            remainingPlayersList.push(player);
+        }
+    });
+    
+    // 각 팀의 남은 슬롯 계산
+    const remainingSlots = teamConfig.map((team, teamIndex) => {
+        const requiredCount = team.requiredPlayers ? team.requiredPlayers.length : 0;
+        const remaining = team.size - requiredCount;
+        return { teamIndex, remaining, players: [] };
+    });
+    
+    let validCount = 0;
+    const MAX_COMBINATIONS = 100000; // 최대 계산량 제한
+    
+    // 재귀적으로 모든 조합 생성 및 검증
+    function generateCombinations(index) {
+        if (index >= remainingPlayersList.length) {
+            // 모든 플레이어가 배정되었으므로 제약 조건 검증
+            if (validateCombination(remainingSlots, restrictions, fixedAssignments)) {
+                validCount++;
+            }
+            return;
+        }
+        
+        // 계산량 제한
+        if (validCount >= MAX_COMBINATIONS) {
+            return;
+        }
+        
+        const player = remainingPlayersList[index];
+        
+        // 각 팀에 배정 시도
+        for (let i = 0; i < remainingSlots.length; i++) {
+            if (remainingSlots[i].remaining > 0) {
+                remainingSlots[i].players.push(player);
+                remainingSlots[i].remaining--;
+                
+                generateCombinations(index + 1);
+                
+                // 백트래킹
+                remainingSlots[i].remaining++;
+                remainingSlots[i].players.pop();
+            }
+        }
+    }
+    
+    generateCombinations(0);
+    
+    // 계산량이 제한에 도달했으면 근사치 반환
+    if (validCount >= MAX_COMBINATIONS) {
+        // 기본 계산의 일정 비율로 근사치 계산 (제약 조건이 있으면 경우의 수가 줄어듦)
+        let denominator = 1;
+        const slots = teamConfig.map(team => {
+            const requiredCount = team.requiredPlayers ? team.requiredPlayers.length : 0;
+            return team.size - requiredCount;
+        });
+        slots.forEach(s => {
+            denominator *= factorial(s);
+        });
+        const baseCombinations = factorial(remainingPlayersList.length) / denominator;
+        // 제약 조건이 많을수록 경우의 수가 줄어들므로 보수적으로 추정
+        const estimatedReduction = Math.pow(0.5, restrictions.length);
+        return Math.floor(baseCombinations * estimatedReduction);
+    }
+    
+    return validCount;
+}
+
+// 조합이 제약 조건을 만족하는지 검증
+function validateCombination(remainingSlots, restrictions, fixedAssignments) {
+    // 각 팀의 최종 멤버 구성
+    const teams = remainingSlots.map(slot => {
+        const teamMembers = [...slot.players];
+        // 고정된 플레이어 추가
+        fixedAssignments.forEach((teamIndex, player) => {
+            if (teamIndex === slot.teamIndex) {
+                teamMembers.push(player);
+            }
+        });
+        return teamMembers;
+    });
+    
+    // 제약 조건 검증
+    for (const restriction of restrictions) {
+        const [player1, player2] = restriction;
+        
+        for (const team of teams) {
+            if (team.includes(player1) && team.includes(player2)) {
+                return false; // 같은 팀에 있으면 안 됨
+            }
+        }
+    }
+    
+    return true;
+}
+
 function updateHostUI() {
     // 플레이어 수 업데이트
     if (playerCountBadge) {
@@ -808,18 +1098,40 @@ function updateHostUI() {
         addTeamBtn.style.cursor = 'pointer';
     }
     
+    // 필수 플레이어 체크박스 업데이트
+    updateRequiredPlayersCheckboxes();
+    
+    // 팀 배정 경우의 수 업데이트
+    updateTeamAssignmentCount();
+    
     // 팀 구성 리스트
     teamConfigList.innerHTML = '';
     sessionData.teamConfig.forEach((team, index) => {
-        const div = document.createElement('div');
-        div.className = 'team-item';
+        // 팀 기본 정보
+        const teamItem = document.createElement('div');
+        teamItem.className = 'team-item';
+        
         const deleteBtn = isHost ? `<button class="btn btn-danger" onclick="removeTeam(${index})">삭제</button>` : '';
-        div.innerHTML = `
-            <span><strong>${team.name}</strong> - ${team.size}명</span>
-            ${deleteBtn}
+        const requiredPlayersText = team.requiredPlayers && team.requiredPlayers.length > 0 
+            ? ` (필수: ${team.requiredPlayers.join(', ')})` 
+            : '';
+        const addRequiredBtn = isHost ? `<button class="btn btn-secondary" onclick="selectTeamForRequiredPlayers(${index})" style="margin-left: 10px;">필수 플레이어 설정</button>` : '';
+        
+        teamItem.innerHTML = `
+            <span><strong>${team.name}</strong> - ${team.size}명${requiredPlayersText}</span>
+            <div>
+                ${addRequiredBtn}
+                ${deleteBtn}
+            </div>
         `;
-        teamConfigList.appendChild(div);
+        teamConfigList.appendChild(teamItem);
     });
+    
+    // 공통 필수 플레이어 체크박스 업데이트
+    updateRequiredPlayersCheckboxes();
+    
+    // 팀 배정 경우의 수 업데이트
+    updateTeamAssignmentCount();
 
     // 제약 조건 셀렉트 업데이트
     updateRestrictionSelects();
@@ -853,6 +1165,49 @@ function updateHostUI() {
     }
 }
 
+function updateRequiredPlayersCheckboxes() {
+    if (!requiredPlayersCheckboxes) return;
+    
+    requiredPlayersCheckboxes.innerHTML = '';
+    if (sessionData.players.length === 0) {
+        requiredPlayersCheckboxes.innerHTML = '<p style="color: #999; font-style: italic; text-align: center; padding: 20px;">플레이어를 먼저 추가하세요</p>';
+        return;
+    }
+    
+    // 모든 팀에서 이미 선택된 플레이어와 해당 팀 정보 수집
+    const playerTeamMap = new Map(); // 플레이어 -> 팀 이름 매핑
+    sessionData.teamConfig.forEach(team => {
+        if (team.requiredPlayers) {
+            team.requiredPlayers.forEach(player => {
+                if (!playerTeamMap.has(player)) {
+                    playerTeamMap.set(player, team.name);
+                }
+            });
+        }
+    });
+    
+    sessionData.players.forEach(player => {
+        const label = document.createElement('label');
+        label.style.cssText = 'display: flex; align-items: center; cursor: pointer;';
+        const isAlreadySelected = playerTeamMap.has(player);
+        const selectedTeamName = playerTeamMap.get(player);
+        // 현재 선택된 팀에 이미 포함된 플레이어는 제외
+        const currentTeam = currentTeamIndexForRequiredPlayers !== null 
+            ? sessionData.teamConfig[currentTeamIndexForRequiredPlayers] 
+            : null;
+        const isInCurrentTeam = currentTeam && currentTeam.requiredPlayers && currentTeam.requiredPlayers.includes(player);
+        const isDisabled = isAlreadySelected && !isInCurrentTeam;
+        
+        const statusText = isDisabled ? ` (${selectedTeamName}에 선택)` : '';
+        
+        label.innerHTML = `
+            <input type="checkbox" value="${player}" ${isDisabled ? 'disabled' : ''} style="margin-right: 8px; width: 18px; height: 18px; cursor: ${isDisabled ? 'not-allowed' : 'pointer'}; opacity: ${isDisabled ? '0.5' : '1'};">
+            <span style="opacity: ${isDisabled ? '0.5' : '1'};">${player}${statusText}</span>
+        `;
+        requiredPlayersCheckboxes.appendChild(label);
+    });
+}
+
 function updateViewerUI() {
     // 플레이어 표시
     viewerPlayerCount.textContent = sessionData.players.length;
@@ -864,7 +1219,12 @@ function updateViewerUI() {
 
     // 팀 구성 표시
     if (sessionData.teamConfig.length > 0) {
-        const teamText = sessionData.teamConfig.map(t => `${t.name} (${t.size}명)`).join(', ');
+        const teamText = sessionData.teamConfig.map(t => {
+            const requiredText = t.requiredPlayers && t.requiredPlayers.length > 0 
+                ? ` (필수: ${t.requiredPlayers.join(', ')})` 
+                : '';
+            return `${t.name} (${t.size}명)${requiredText}`;
+        }).join(', ');
         const totalSlots = sessionData.teamConfig.reduce((sum, t) => sum + t.size, 0);
         viewerTeams.innerHTML = `<p>${teamText}</p><p>총 인원: ${totalSlots}명</p>`;
     } else {
@@ -878,6 +1238,22 @@ function updateViewerUI() {
     } else {
         viewerRestrictions.innerHTML = '<p class="empty">제약 조건이 없습니다</p>';
     }
+}
+
+
+function updateTeamAssignmentCount() {
+    if (!teamAssignmentCount) return;
+    
+    const combinations = calculateTeamAssignmentCombinations();
+    
+    if (combinations === 0) {
+        teamAssignmentCount.textContent = '';
+        return;
+    }
+    
+    // 숫자를 천 단위로 포맷팅
+    const formattedCount = combinations.toLocaleString('ko-KR');
+    teamAssignmentCount.textContent = `(총 ${formattedCount}가지)`;
 }
 
 function updateRestrictionSelects() {
@@ -950,7 +1326,72 @@ function removePlayer(index) {
 }
 
 function removeTeam(index) {
+    // 삭제되는 팀이 현재 선택된 팀이면 리셋
+    if (currentTeamIndexForRequiredPlayers === index) {
+        currentTeamIndexForRequiredPlayers = null;
+        if (addRequiredPlayersBtn) {
+            addRequiredPlayersBtn.textContent = '필수 플레이어 추가';
+        }
+    } else if (currentTeamIndexForRequiredPlayers !== null && currentTeamIndexForRequiredPlayers > index) {
+        // 삭제되는 팀의 인덱스가 현재 선택된 팀 인덱스보다 작으면 인덱스 조정
+        currentTeamIndexForRequiredPlayers--;
+    }
+    
     const newConfig = sessionData.teamConfig.filter((_, i) => i !== index);
+    
+    // 삭제 후 즉시 UI 업데이트하여 버튼 상태 확인
+    sessionData.teamConfig = newConfig;
+    
+    // 현재 선택된 팀이 범위를 벗어났는지 다시 확인
+    if (currentTeamIndexForRequiredPlayers !== null) {
+        if (currentTeamIndexForRequiredPlayers >= newConfig.length) {
+            currentTeamIndexForRequiredPlayers = null;
+            if (addRequiredPlayersBtn) {
+                addRequiredPlayersBtn.textContent = '필수 플레이어 추가';
+            }
+        }
+    }
+    
+    socket.emit('update_team_config', { sessionId: currentSessionId, teamConfig: newConfig });
+}
+
+// 전역 함수 (HTML onclick에서 사용)
+function selectTeamForRequiredPlayers(teamIndex) {
+    if (!isHost) {
+        alert('호스트만 필수 플레이어를 설정할 수 있습니다.');
+        return;
+    }
+    
+    currentTeamIndexForRequiredPlayers = teamIndex;
+    updateRequiredPlayersCheckboxes();
+    
+    // 버튼 텍스트 업데이트
+    if (addRequiredPlayersBtn) {
+        const team = sessionData.teamConfig[teamIndex];
+        if (team) {
+            addRequiredPlayersBtn.textContent = `${team.name}에 필수 플레이어 추가`;
+        }
+    }
+}
+
+// 필수 플레이어 제거 함수
+function removeRequiredPlayer(teamIndex, playerName) {
+    if (!isHost) {
+        alert('호스트만 필수 플레이어를 제거할 수 있습니다.');
+        return;
+    }
+    
+    const team = sessionData.teamConfig[teamIndex];
+    if (!team) return;
+    
+    const requiredPlayers = (team.requiredPlayers || []).filter(p => p !== playerName);
+    
+    const newConfig = [...sessionData.teamConfig];
+    newConfig[teamIndex] = {
+        ...team,
+        requiredPlayers: requiredPlayers
+    };
+    
     socket.emit('update_team_config', { sessionId: currentSessionId, teamConfig: newConfig });
 }
 

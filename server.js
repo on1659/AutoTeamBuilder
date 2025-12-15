@@ -35,6 +35,30 @@ function assignTeams(players, teamConfig, restrictions) {
         result.message = `플레이어 수(${players.length})와 팀 인원 수(${totalSlots})가 맞지 않습니다.`;
         return result;
     }
+    
+    // 필수 플레이어 검증
+    const allRequiredPlayers = [];
+    for (const team of teamConfig) {
+        const requiredPlayers = team.requiredPlayers || [];
+        // 필수 플레이어 수가 팀 인원보다 많으면 안 됨
+        if (requiredPlayers.length > team.size) {
+            result.message = `팀 "${team.name}"의 필수 플레이어 수(${requiredPlayers.length}명)가 팀 인원(${team.size}명)보다 많습니다.`;
+            return result;
+        }
+        // 필수 플레이어가 플레이어 목록에 있는지 확인
+        for (const requiredPlayer of requiredPlayers) {
+            if (!players.includes(requiredPlayer)) {
+                result.message = `필수 플레이어 "${requiredPlayer}"가 플레이어 목록에 없습니다.`;
+                return result;
+            }
+            // 중복 확인
+            if (allRequiredPlayers.includes(requiredPlayer)) {
+                result.message = `필수 플레이어 "${requiredPlayer}"가 여러 팀에 중복 지정되었습니다.`;
+                return result;
+            }
+            allRequiredPlayers.push(requiredPlayer);
+        }
+    }
 
     // 최대 시도 횟수
     const MAX_ATTEMPTS = 10000;
@@ -45,19 +69,37 @@ function assignTeams(players, teamConfig, restrictions) {
         
         // 플레이어 섞기
         const shuffled = [...players].sort(() => Math.random() - 0.5);
+        const availablePlayers = [...shuffled];
         
         // 팀 구성
         const teams = [];
-        let index = 0;
         
         for (let i = 0; i < teamConfig.length; i++) {
             const teamSize = teamConfig[i].size;
-            const teamMembers = shuffled.slice(index, index + teamSize);
-            teams.push({
+            const team = {
                 name: teamConfig[i].name,
-                members: teamMembers
-            });
-            index += teamSize;
+                members: []
+            };
+            
+            // 필수 플레이어 먼저 배정
+            const requiredPlayers = teamConfig[i].requiredPlayers || [];
+            for (const requiredPlayer of requiredPlayers) {
+                if (availablePlayers.includes(requiredPlayer)) {
+                    team.members.push(requiredPlayer);
+                    const playerIndex = availablePlayers.indexOf(requiredPlayer);
+                    availablePlayers.splice(playerIndex, 1);
+                }
+            }
+            
+            // 나머지 인원 랜덤 배정
+            const remainingSlots = teamSize - team.members.length;
+            for (let j = 0; j < remainingSlots && availablePlayers.length > 0; j++) {
+                const randomIndex = Math.floor(Math.random() * availablePlayers.length);
+                team.members.push(availablePlayers[randomIndex]);
+                availablePlayers.splice(randomIndex, 1);
+            }
+            
+            teams.push(team);
         }
 
         // 제약 조건 검증
@@ -508,6 +550,36 @@ io.on('connection', (socket) => {
         io.to(sessionId).emit('result_reset');
     });
 
+    // 방 삭제
+    socket.on('delete_room', (data) => {
+        const { sessionId } = data;
+        const session = sessions.get(sessionId);
+
+        if (!session) {
+            socket.emit('error', { message: '방을 찾을 수 없습니다.' });
+            return;
+        }
+
+        if (session.host !== socket.id) {
+            socket.emit('error', { message: '호스트만 방을 삭제할 수 있습니다.' });
+            return;
+        }
+
+        // 방에 있는 모든 사용자에게 방 삭제 알림
+        io.to(sessionId).emit('room_deleted', { 
+            message: '방이 삭제되었습니다.',
+            roomName: session.roomName 
+        });
+
+        // 방 삭제
+        sessions.delete(sessionId);
+        
+        // 방 목록 업데이트
+        io.emit('room_list_updated', getRoomList());
+        
+        console.log(`방 삭제: ${session.roomName} (${sessionId}) - 호스트가 삭제함`);
+    });
+
     socket.on('disconnect', async () => {
         console.log('연결 해제:', socket.id, socket.userName);
         
@@ -627,11 +699,11 @@ setInterval(() => {
     const THIRTY_MINUTES = 30 * 60 * 1000;
 
     for (const [sessionId, session] of sessions.entries()) {
-        // 참여자가 없고 플레이어도 없으면 즉시 삭제 (30분 규칙 무시)
-        if (session.users.length === 0 && session.players.length === 0) {
+        // 참여자가 없고 플레이어도 없고 게임을 한 번도 진행하지 않은 방이면 즉시 삭제 (30분 규칙 무시)
+        if (session.users.length === 0 && session.players.length === 0 && session.result === null) {
             sessions.delete(sessionId);
             io.emit('room_list_updated', getRoomList());
-            console.log(`방 삭제: ${session.roomName} (${sessionId}) - 참여자 없음, 플레이어 없음 (즉시 삭제)`);
+            console.log(`방 삭제: ${session.roomName} (${sessionId}) - 참여자 없음, 플레이어 없음, 게임 미진행 (즉시 삭제)`);
         }
         // 빈 방이 30분 이상 지났으면 삭제
         else if (session.emptyAt !== null && session.emptyAt !== undefined && now - session.emptyAt > THIRTY_MINUTES) {
