@@ -173,6 +173,25 @@ refreshRoomsBtn.addEventListener('click', () => {
     socket.emit('get_room_list');
 });
 
+// 방 삭제 버튼 이벤트 리스너
+if (deleteRoomBtn) {
+    deleteRoomBtn.addEventListener('click', () => {
+        if (!currentSessionId) {
+            alert('방 정보를 찾을 수 없습니다.');
+            return;
+        }
+        
+        if (!isHost) {
+            alert('호스트만 방을 삭제할 수 있습니다.');
+            return;
+        }
+        
+        if (confirm('정말로 이 방을 삭제하시겠습니까?\n\n방에 참가한 모든 사용자가 나가게 됩니다.')) {
+            socket.emit('delete_room', { sessionId: currentSessionId });
+        }
+    });
+}
+
 // Enter 키로 방 생성
 roomNameInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') {
@@ -507,7 +526,6 @@ socket.on('session_joined', (data) => {
 });
 
 socket.on('room_deleted', (data) => {
-    alert('방이 삭제되었습니다.');
     // landing section으로 돌아가기
     currentSessionId = null;
     isHost = false;
@@ -519,10 +537,20 @@ socket.on('room_deleted', (data) => {
         restrictionGroups: [],
         result: null
     };
+    
+    // UI 초기화
     landingSection.style.display = 'block';
     sessionSection.style.display = 'none';
     resultSection.style.display = 'none';
+    
+    // 입력 필드 초기화
+    if (nicknameInput) nicknameInput.value = '';
+    if (roomNameInput) roomNameInput.value = '';
+    
+    // 방 목록 새로고침
     socket.emit('get_room_list');
+    
+    alert('방이 삭제되었습니다.');
 });
 
 socket.on('players_updated', (data) => {
