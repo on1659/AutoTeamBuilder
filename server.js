@@ -102,8 +102,23 @@ function assignTeams(players, teamConfig, restrictions) {
             teams.push(team);
         }
 
-        // 제약 조건 검증
-        if (validateRestrictions(teams, restrictions)) {
+        // 필수 플레이어가 올바른 팀에 배정되었는지 검증
+        let requiredPlayersValid = true;
+        for (let i = 0; i < teamConfig.length; i++) {
+            const requiredPlayers = teamConfig[i].requiredPlayers || [];
+            const team = teams[i];
+            
+            for (const requiredPlayer of requiredPlayers) {
+                if (!team.members.includes(requiredPlayer)) {
+                    requiredPlayersValid = false;
+                    break;
+                }
+            }
+            if (!requiredPlayersValid) break;
+        }
+        
+        // 필수 플레이어 검증 및 제약 조건 검증
+        if (requiredPlayersValid && validateRestrictions(teams, restrictions)) {
             result.success = true;
             result.teams = teams;
             result.message = `${attempt}번 시도 후 성공`;

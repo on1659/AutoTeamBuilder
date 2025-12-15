@@ -362,6 +362,39 @@ if (addRequiredPlayersBtn) {
             return;
         }
         
+        // 팀 구성 업데이트 (임시로 검증용)
+        const tempConfig = [...sessionData.teamConfig];
+        tempConfig[currentTeamIndexForRequiredPlayers] = {
+            ...team,
+            requiredPlayers: newRequired
+        };
+        
+        // 경우의 수 계산 및 배정 가능 여부 검증
+        const combinations = calculateTeamAssignmentCombinationsWithConfig(
+            sessionData.players,
+            tempConfig,
+            sessionData.restrictions
+        );
+        
+        const validationResult = validateTeamAssignment(
+            sessionData.players,
+            tempConfig,
+            sessionData.restrictions
+        );
+        
+        // 경우의 수가 0이거나 배정이 불가능하면 경고
+        if (combinations === 0 || !validationResult.possible) {
+            const confirmAdd = confirm(
+                `⚠️ 경고: 이 필수 플레이어를 추가하면 팀 배정이 불가능할 수 있습니다.\n\n` +
+                `${validationResult.reason || '같은팀 금지 설정으로 인하여 팀 배정이 불가능할 수 있습니다.\n제약 조건을 완화하거나 팀 구성을 변경해주세요.'}\n\n` +
+                `그래도 추가하시겠습니까?`
+            );
+            
+            if (!confirmAdd) {
+                return;
+            }
+        }
+        
         // 팀 구성 업데이트
         const newConfig = [...sessionData.teamConfig];
         newConfig[currentTeamIndexForRequiredPlayers] = {
@@ -845,36 +878,69 @@ function validateTeamAssignment(players, teamConfig, restrictions) {
         // 플레이어 섞기
         const shuffled = [...players].sort(() => Math.random() - 0.5);
         
-        // 팀 구성
+        // 필수 플레이어를 먼저 배정
+        const availablePlayers = [...shuffled];
         const teams = [];
-        let index = 0;
         
         for (let i = 0; i < teamConfig.length; i++) {
-            const teamSize = teamConfig[i].size;
-            const teamMembers = shuffled.slice(index, index + teamSize);
-            teams.push({
+            const team = {
                 name: teamConfig[i].name,
-                members: teamMembers
-            });
-            index += teamSize;
+                members: []
+            };
+            
+            // 필수 플레이어 먼저 배정
+            const requiredPlayers = teamConfig[i].requiredPlayers || [];
+            for (const requiredPlayer of requiredPlayers) {
+                const index = availablePlayers.indexOf(requiredPlayer);
+                if (index !== -1) {
+                    team.members.push(requiredPlayer);
+                    availablePlayers.splice(index, 1);
+                }
+            }
+            
+            // 나머지 슬롯을 랜덤하게 채우기
+            const remainingSlots = teamConfig[i].size - team.members.length;
+            for (let j = 0; j < remainingSlots && availablePlayers.length > 0; j++) {
+                const randomIndex = Math.floor(Math.random() * availablePlayers.length);
+                team.members.push(availablePlayers.splice(randomIndex, 1)[0]);
+            }
+            
+            teams.push(team);
         }
 
-        // 제약 조건 검증
-        let valid = true;
-        for (const restriction of restrictions) {
-            const player1 = restriction[0];
-            const player2 = restriction[1];
+        // 필수 플레이어가 올바른 팀에 배정되었는지 검증
+        let requiredPlayersValid = true;
+        for (let i = 0; i < teamConfig.length; i++) {
+            const requiredPlayers = teamConfig[i].requiredPlayers || [];
+            const team = teams[i];
             
-            for (const team of teams) {
-                if (team.members.includes(player1) && team.members.includes(player2)) {
-                    valid = false;
+            for (const requiredPlayer of requiredPlayers) {
+                if (!team.members.includes(requiredPlayer)) {
+                    requiredPlayersValid = false;
                     break;
                 }
             }
-            if (!valid) break;
+            if (!requiredPlayersValid) break;
         }
 
-        if (valid) {
+        // 제약 조건 검증
+        let restrictionsValid = true;
+        if (requiredPlayersValid) {
+            for (const restriction of restrictions) {
+                const player1 = restriction[0];
+                const player2 = restriction[1];
+                
+                for (const team of teams) {
+                    if (team.members.includes(player1) && team.members.includes(player2)) {
+                        restrictionsValid = false;
+                        break;
+                    }
+                }
+                if (!restrictionsValid) break;
+            }
+        }
+
+        if (requiredPlayersValid && restrictionsValid) {
             success = true;
         }
     }
@@ -901,9 +967,15 @@ function factorial(n) {
 
 // 팀 배정 경우의 수 계산 (같은팀 금지설정 포함)
 function calculateTeamAssignmentCombinations() {
-    const players = sessionData.players;
-    const teamConfig = sessionData.teamConfig;
-    const restrictions = sessionData.restrictions || [];
+    return calculateTeamAssignmentCombinationsWithConfig(
+        sessionData.players,
+        sessionData.teamConfig,
+        sessionData.restrictions || []
+    );
+}
+
+// 특정 설정으로 경우의 수 계산 (검증용)
+function calculateTeamAssignmentCombinationsWithConfig(players, teamConfig, restrictions) {
     
     if (players.length === 0 || teamConfig.length === 0) {
         return 0;
