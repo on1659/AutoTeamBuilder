@@ -557,21 +557,36 @@ io.on('connection', (socket) => {
                         
                         console.log(`호스트 변경: ${session.roomName} (${sessionId}) - 새 호스트: ${newHost.userName} (${newHost.id})`);
                     } else {
-                        // 남은 사용자가 없으면 30분 타이머 시작
-                        session.emptyAt = Date.now();
-                        io.emit('room_list_updated', getRoomList());
-                        console.log(`방 ${session.roomName} (${sessionId}) 빈 방 상태 - 30분 후 삭제 예정`);
+                        // 남은 사용자가 없고 플레이어도 없으면 즉시 삭제
+                        if (session.players.length === 0) {
+                            sessions.delete(sessionId);
+                            io.emit('room_list_updated', getRoomList());
+                            console.log(`방 삭제: ${session.roomName} (${sessionId}) - 참여자 없음, 플레이어 없음 (즉시 삭제)`);
+                        } else {
+                            // 남은 사용자가 없으면 30분 타이머 시작
+                            session.emptyAt = Date.now();
+                            io.emit('room_list_updated', getRoomList());
+                            console.log(`방 ${session.roomName} (${sessionId}) 빈 방 상태 - 30분 후 삭제 예정`);
+                        }
                     }
                 } else {
                     // 일반 사용자 나감
                     io.to(sessionId).emit('users_updated', { users: session.users });
                     console.log(`${userName}이(가) 방 ${session.roomName} (${sessionId})에서 나감`);
                     
-                    // 남은 사용자가 없으면 30분 타이머 시작
+                    // 남은 사용자가 없으면 체크
                     if (session.users.length === 0) {
-                        session.emptyAt = Date.now();
-                        io.emit('room_list_updated', getRoomList());
-                        console.log(`방 ${session.roomName} (${sessionId}) 빈 방 상태 - 30분 후 삭제 예정`);
+                        // 플레이어도 없으면 즉시 삭제
+                        if (session.players.length === 0) {
+                            sessions.delete(sessionId);
+                            io.emit('room_list_updated', getRoomList());
+                            console.log(`방 삭제: ${session.roomName} (${sessionId}) - 참여자 없음, 플레이어 없음 (즉시 삭제)`);
+                        } else {
+                            // 플레이어가 있으면 30분 타이머 시작
+                            session.emptyAt = Date.now();
+                            io.emit('room_list_updated', getRoomList());
+                            console.log(`방 ${session.roomName} (${sessionId}) 빈 방 상태 - 30분 후 삭제 예정`);
+                        }
                     }
                 }
             }
@@ -612,8 +627,14 @@ setInterval(() => {
     const THIRTY_MINUTES = 30 * 60 * 1000;
 
     for (const [sessionId, session] of sessions.entries()) {
+        // 참여자가 없고 플레이어도 없으면 즉시 삭제 (30분 규칙 무시)
+        if (session.users.length === 0 && session.players.length === 0) {
+            sessions.delete(sessionId);
+            io.emit('room_list_updated', getRoomList());
+            console.log(`방 삭제: ${session.roomName} (${sessionId}) - 참여자 없음, 플레이어 없음 (즉시 삭제)`);
+        }
         // 빈 방이 30분 이상 지났으면 삭제
-        if (session.emptyAt !== null && session.emptyAt !== undefined && now - session.emptyAt > THIRTY_MINUTES) {
+        else if (session.emptyAt !== null && session.emptyAt !== undefined && now - session.emptyAt > THIRTY_MINUTES) {
             sessions.delete(sessionId);
             io.emit('room_list_updated', getRoomList());
             console.log(`방 삭제: ${session.roomName} (${sessionId}) - 빈 방 30분 경과`);
