@@ -57,6 +57,33 @@ const roomCount = document.getElementById('room-count');
 const activeRoomCount = document.getElementById('active-room-count');
 const currentSessionIdSpan = document.getElementById('current-session-id');
 const currentHostNameSpan = document.getElementById('current-host-name');
+
+// localStorage에서 마지막 닉네임 불러오기
+const NICKNAME_STORAGE_KEY = 'teamRandomizer_lastNickname';
+if (nicknameInput) {
+    const savedNickname = localStorage.getItem(NICKNAME_STORAGE_KEY);
+    if (savedNickname) {
+        nicknameInput.value = savedNickname;
+        // 닉네임이 있으면 방 제목도 자동 생성
+        updateRoomNameFromNickname();
+    }
+}
+
+// 닉네임 저장 함수
+function saveNickname(nickname) {
+    if (nickname && nickname.trim().length > 0) {
+        localStorage.setItem(NICKNAME_STORAGE_KEY, nickname.trim());
+    }
+}
+
+// 닉네임에 따라 방 제목 자동 생성
+function updateRoomNameFromNickname() {
+    if (!nicknameInput || !roomNameInput) return;
+    const nickname = nicknameInput.value.trim();
+    if (nickname && !roomNameInput.value.trim()) {
+        roomNameInput.value = `${nickname}의 방입니다`;
+    }
+}
 const roleBadge = document.getElementById('role-badge');
 const hostControls = document.getElementById('host-controls');
 const viewerArea = document.getElementById('viewer-area');
@@ -109,17 +136,20 @@ createRoomBtn.addEventListener('click', () => {
         return;
     }
     
-    if (!roomName) {
-        alert('방 이름을 입력하세요');
-        roomNameInput.focus();
-        return;
+    // 방 이름이 없으면 자동 생성
+    let finalRoomName = roomName;
+    if (!finalRoomName) {
+        finalRoomName = `${nickname}의 방입니다`;
     }
     
-    if (roomName.length > 30) {
+    if (finalRoomName.length > 30) {
         alert('방 이름은 30자 이하로 입력하세요');
         roomNameInput.focus();
         return;
     }
+    
+    // 닉네임 저장
+    saveNickname(nickname);
     
     if (!socket.connected) {
         alert('서버에 연결되지 않았습니다. 페이지를 새로고침해주세요.');
@@ -127,8 +157,8 @@ createRoomBtn.addEventListener('click', () => {
         return;
     }
     
-    console.log('방 생성 요청 전송:', { userName: nickname, roomName });
-    socket.emit('create_session', { userName: nickname, roomName });
+    console.log('방 생성 요청 전송:', { userName: nickname, roomName: finalRoomName });
+    socket.emit('create_session', { userName: nickname, roomName: finalRoomName });
     roomNameInput.value = '';
 });
 
@@ -158,6 +188,11 @@ if (nicknameInput) {
             } else {
                 createRoomBtn.title = '';
             }
+        }
+        
+        // 방 제목 자동 업데이트 (방 제목이 비어있을 때만)
+        if (roomNameInput && !roomNameInput.value.trim()) {
+            updateRoomNameFromNickname();
         }
     });
 }
@@ -526,6 +561,9 @@ function joinRoom(sessionId) {
         nicknameInput.focus();
         return;
     }
+    
+    // 닉네임 저장
+    saveNickname(nickname);
     
     console.log('방 입장 요청:', { sessionId, userName: nickname });
     socket.emit('join_room', { sessionId, userName: nickname });
